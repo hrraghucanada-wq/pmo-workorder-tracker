@@ -244,7 +244,7 @@ nav { background: var(--navy); height: 54px; display: flex; align-items: center;
     <div class="add-panel-header"><h2>Add a work order</h2></div>
     <div class="add-panel-body">
       <div class="form-grid">
-        <div class="field span2"><label>Work Order # or Name</label><input id="f-wo" placeholder="e.g. 99200 or Roof Repair Job" /></div>
+        <div class="field span2"><label>Work Order # or Name</label><input id="f-wo" placeholder="e.g. 99200 or Add Delete button in the UI" /></div>
         <div class="field"><label>Client Request #</label><input id="f-cr" placeholder="CR-2024-0000" /></div>
         <div class="field"><label>Assignee</label><select id="f-assignee"><option value="DC">DC</option><option value="SIS">SIS</option><option value="AFCS">AFCS</option></select></div>
         <div class="field"><label>Quoted Price ($)</label><input id="f-price" type="number" placeholder="0.00" step="0.01" /></div>
@@ -386,7 +386,11 @@ async function saveRow(o) {
   if (!r.ok) throw new Error(await r.text());
 }
 async function delRow(o) {
-  const r = await fetch(`${API.delete}?id=${encodeURIComponent(o.rowKey)}&partitionKey=${encodeURIComponent(o.partitionKey)}`, { method:'DELETE' });
+  const r = await fetch(API.delete, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: o.rowKey, partitionKey: o.partitionKey || 'PMO' })
+  });
   if (!r.ok && r.status !== 404) throw new Error(await r.text());
 }
 
@@ -455,9 +459,12 @@ async function doDel() {
   localStorage.setItem('wo_cache', JSON.stringify(orders)); render(); renderDashboard();
   try {
     if (o) {
-      const url = `${API.delete}?id=${encodeURIComponent(o.rowKey)}&partitionKey=${encodeURIComponent(o.partitionKey || 'PMO')}`;
-      console.log('DELETE URL:', url);
-      const r = await fetch(url, { method: 'DELETE' });
+      console.log('Deleting from Azure:', o.rowKey);
+      const r = await fetch(API.delete, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: o.rowKey, partitionKey: o.partitionKey || 'PMO' })
+      });
       const data = await r.json();
       console.log('DELETE response:', data);
       if (r.ok) toast('Deleted from Azure ✓', 'ok');
