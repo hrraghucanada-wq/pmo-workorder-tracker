@@ -244,8 +244,8 @@ nav { background: var(--navy); height: 54px; display: flex; align-items: center;
     <div class="add-panel-header"><h2>Add a work order</h2></div>
     <div class="add-panel-body">
       <div class="form-grid">
-        <div class="field span2"><label>Work Order # or Name</label><input id="f-wo" placeholder="e.g. DC-BC-OPS-001 or Short Description" /></div>
-        <div class="field"><label>Client Request #</label><input id="f-cr" placeholder="REQ000000" /></div>
+        <div class="field span2"><label>Work Order # or Name</label><input id="f-wo" placeholder="e.g. 99200 or Roof Repair Job" /></div>
+        <div class="field"><label>Client Request #</label><input id="f-cr" placeholder="CR-2024-0000" /></div>
         <div class="field"><label>Assignee</label><select id="f-assignee"><option value="DC">DC</option><option value="SIS">SIS</option><option value="AFCS">AFCS</option></select></div>
         <div class="field"><label>Quoted Price ($)</label><input id="f-price" type="number" placeholder="0.00" step="0.01" /></div>
         <div class="field"><label>Final Price ($)</label><input id="f-final" type="number" placeholder="0.00" step="0.01" /></div>
@@ -342,7 +342,7 @@ const STEPS = ['Time Calculation','Document Upload','Pricing Review','CFM Review
 const API = {
   get:    'https://func-pmo-tracker-aqe6f8c0g0a9bkfw.eastus-01.azurewebsites.net/api/GetWorkOrders',
   save:   'https://func-pmo-tracker-aqe6f8c0g0a9bkfw.eastus-01.azurewebsites.net/api/SaveWorkOrder',
-  delete: 'https://func-pmo-tracker-aqe6f8c0g0a9bkfw.eastus-01.azurewebsites.net/api/DeleteWorkOrder',
+  delete: 'https://func-pmo-tracker-aqe6f8c0g0a9bkfw.eastus-01.azurewebsites.net/api/DeleteWorkOrder?code=Ut34yXm53Cs4Y4ZzVMjCYQi1Xmy8h1vZhsESdIIh22QPAzFu2Ms7HA==',
   ai:     'https://func-pmo-tracker-aqe6f8c0g0a9bkfw.eastus-01.azurewebsites.net/api/AskAI',
   docs:   'https://func-pmo-tracker-aqe6f8c0g0a9bkfw.eastus-01.azurewebsites.net/api/UploadDoc'
 };
@@ -466,8 +466,10 @@ async function doDel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: o.rowKey, partitionKey: o.partitionKey || 'PMO' })
       });
-      const data = await r.json();
-      console.log('DELETE response:', data);
+      const text = await r.text();
+      let data = {};
+      try { data = JSON.parse(text); } catch {}
+      console.log('DELETE response:', r.status, data);
       if (r.ok) toast('Deleted from Azure ✓', 'ok');
       else toast('Delete error: ' + (data.error || r.status), 'err');
     }
