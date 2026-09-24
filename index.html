@@ -310,33 +310,30 @@ nav { background: var(--navy); height: 54px; display: flex; align-items: center;
 <div class="page" id="page-docs">
   <div class="docs-header">
     <h2>📄 Learning Documents</h2>
-    <button class="btn-primary" onclick="document.getElementById('file-upload').click()">+ Upload Document</button>
-    <input type="file" id="file-upload" accept=".pdf,.doc,.docx" style="display:none" onchange="handleUpload(event)" multiple />
+    <button class="btn-primary" onclick="document.getElementById('file-upload').click()" id="btn-upload">+ Upload Document</button>
+    <input type="file" id="file-upload" accept=".pdf,.doc,.docx,.xlsx,.pptx" style="display:none" onchange="handleUpload(event)" multiple />
   </div>
-  <div class="upload-area" onclick="document.getElementById('file-upload').click()">
+  <div class="upload-area" id="upload-area" onclick="document.getElementById('file-upload').click()"
+    ondragover="event.preventDefault();this.style.borderColor='var(--blue)'"
+    ondragleave="this.style.borderColor=''"
+    ondrop="event.preventDefault();handleUpload({target:{files:event.dataTransfer.files}})">
     <div class="upload-icon">📂</div>
-    <p>Click to upload or drag and drop PDF files here</p>
-    <p style="font-size:11px;margin-top:4px;">PDF, DOC, DOCX supported</p>
+    <p>Click to upload or drag and drop files here</p>
+    <p style="font-size:11px;margin-top:4px;">PDF, DOC, DOCX, XLSX, PPTX supported</p>
   </div>
-  <div class="docs-grid" id="docs-grid">
-    <div class="doc-card">
-      <div class="doc-icon">📘</div>
-      <div class="doc-name">PMO Process Guide</div>
-      <div class="doc-meta">PDF · Added by admin</div>
-      <div class="doc-actions"><button class="btn-view">View</button></div>
+  <div id="upload-progress" style="display:none;margin-bottom:16px;">
+    <div style="background:var(--blue-lt);border:1px solid var(--blue);border-radius:6px;padding:12px 16px;font-size:13px;color:var(--blue);display:flex;align-items:center;gap:10px;">
+      <div class="spin" style="width:18px;height:18px;border-width:2px;"></div>
+      <span id="upload-msg">Uploading…</span>
     </div>
-    <div class="doc-card">
-      <div class="doc-icon">📗</div>
-      <div class="doc-name">Work Order Guidelines</div>
-      <div class="doc-meta">PDF · Added by admin</div>
-      <div class="doc-actions"><button class="btn-view">View</button></div>
-    </div>
-    <div class="doc-card">
-      <div class="doc-icon">📙</div>
-      <div class="doc-name">Pricing Standards</div>
-      <div class="doc-meta">PDF · Added by admin</div>
-      <div class="doc-actions"><button class="btn-view">View</button></div>
-    </div>
+  </div>
+  <div id="docs-loading" style="display:none;text-align:center;padding:40px;color:var(--sub);">
+    <div class="spin" style="margin:0 auto 12px;"></div>
+    <span>Loading documents from Azure…</span>
+  </div>
+  <div class="docs-grid" id="docs-grid"></div>
+  <div id="docs-empty" style="display:none;">
+    <div class="empty-sec">No documents uploaded yet. Click "+ Upload Document" to add your first file.</div>
   </div>
 </div>
 
@@ -346,7 +343,8 @@ const API = {
   get:    'https://func-pmo-tracker-aqe6f8c0g0a9bkfw.eastus-01.azurewebsites.net/api/GetWorkOrders',
   save:   'https://func-pmo-tracker-aqe6f8c0g0a9bkfw.eastus-01.azurewebsites.net/api/SaveWorkOrder',
   delete: 'https://func-pmo-tracker-aqe6f8c0g0a9bkfw.eastus-01.azurewebsites.net/api/DeleteWorkOrder',
-  ai:     'https://func-pmo-tracker-aqe6f8c0g0a9bkfw.eastus-01.azurewebsites.net/api/AskAI'
+  ai:     'https://func-pmo-tracker-aqe6f8c0g0a9bkfw.eastus-01.azurewebsites.net/api/AskAI',
+  docs:   'https://func-pmo-tracker-aqe6f8c0g0a9bkfw.eastus-01.azurewebsites.net/api/UploadDoc'
 };
 const PARTITION = 'PMO';
 let orders = [];
@@ -360,6 +358,7 @@ function showPage(name) {
   document.getElementById('page-' + name).classList.add('active');
   event.currentTarget.classList.add('active');
   if (name === 'dashboard') renderDashboard();
+  if (name === 'docs') loadDocs();
 }
 
 // ── Load ──
@@ -682,20 +681,84 @@ function askSuggestion(btn) {
 }
 
 // ── DOCUMENTS ──
-function handleUpload(event) {
-  const files = event.target.files;
+async function loadDocs() {
+  document.getElementById('docs-loading').style.display = 'block';
+  document.getElementById('docs-grid').innerHTML = '';
+  document.getElementById('docs-empty').style.display = 'none';
+  try {
+    const r = await fetch(API.docs);
+    if (!r.ok) throw new Error(await r.text());
+    const docs = await r.json();
+    renderDocs(docs);
+  } catch(e) {
+    document.getElementById('docs-grid').innerHTML = `<p style="color:var(--red);font-size:13px;">Could not load documents: ${e.message}</p>`;
+  }
+  document.getElementById('docs-loading').style.display = 'none';
+}
+
+function renderDocs(docs) {
   const grid = document.getElementById('docs-grid');
-  Array.from(files).forEach(file => {
-    const card = document.createElement('div');
-    card.className = 'doc-card';
-    card.innerHTML = `
-      <div class="doc-icon">📄</div>
-      <div class="doc-name">${esc(file.name)}</div>
-      <div class="doc-meta">${(file.size/1024).toFixed(0)} KB · Just uploaded</div>
-      <div class="doc-actions"><button class="btn-view" onclick="toast('Open the file from your Downloads folder','ok')">View</button></div>`;
-    grid.insertBefore(card, grid.firstChild);
-  });
-  toast(`${files.length} document(s) uploaded`, 'ok');
+  const empty = document.getElementById('docs-empty');
+  if (!docs || docs.length === 0) {
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  grid.innerHTML = docs.map(doc => {
+    const ext = doc.name.split('.').pop().toLowerCase();
+    const icon = ext === 'pdf' ? '📕' : ext === 'xlsx' ? '📗' : ext === 'pptx' ? '📙' : ext === 'docx' ? '📘' : '📄';
+    const size = doc.size > 1048576 ? (doc.size/1048576).toFixed(1)+' MB' : (doc.size/1024).toFixed(0)+' KB';
+    const date = new Date(doc.lastModified).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    return `<div class="doc-card">
+      <div class="doc-icon">${icon}</div>
+      <div class="doc-name">${esc(doc.name)}</div>
+      <div class="doc-meta">${size} · ${date}</div>
+      <div class="doc-actions">
+        <button class="btn-view" onclick="window.open('${esc(doc.url)}','_blank')">View / Download</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function handleUpload(event) {
+  const files = Array.from(event.target.files);
+  if (!files.length) return;
+  const progress = document.getElementById('upload-progress');
+  const msg = document.getElementById('upload-msg');
+  const btn = document.getElementById('btn-upload');
+  progress.style.display = 'block';
+  btn.disabled = true;
+  let uploaded = 0;
+  for (const file of files) {
+    msg.textContent = `Uploading ${file.name}… (${uploaded+1} of ${files.length})`;
+    try {
+      const base64 = await new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result.split(',')[1]);
+        reader.onerror = rej;
+        reader.readAsDataURL(file);
+      });
+      const r = await fetch(API.docs, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileBase64: base64,
+          contentType: file.type || 'application/octet-stream'
+        })
+      });
+      if (!r.ok) throw new Error(await r.text());
+      uploaded++;
+      toast(`${file.name} uploaded ✓`, 'ok');
+    } catch(e) {
+      toast(`Failed to upload ${file.name}: ${e.message}`, 'err');
+    }
+  }
+  progress.style.display = 'none';
+  btn.disabled = false;
+  document.getElementById('file-upload').value = '';
+  await loadDocs();
 }
 
 load();
