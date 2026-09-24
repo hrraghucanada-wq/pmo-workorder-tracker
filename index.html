@@ -450,9 +450,23 @@ function closeModal() { document.getElementById('modal').classList.remove('open'
 async function doDel() {
   closeModal(); if (!delTarget) return;
   const o = orders.find(x => x.rowKey === delTarget);
+  console.log('Deleting order:', o);
   orders = orders.filter(x => x.rowKey !== delTarget);
   localStorage.setItem('wo_cache', JSON.stringify(orders)); render(); renderDashboard();
-  try { if (o) await delRow(o); toast('Deleted', ''); } catch(e) { toast('Deleted locally only', ''); }
+  try {
+    if (o) {
+      const url = `${API.delete}?id=${encodeURIComponent(o.rowKey)}&partitionKey=${encodeURIComponent(o.partitionKey || 'PMO')}`;
+      console.log('DELETE URL:', url);
+      const r = await fetch(url, { method: 'DELETE' });
+      const data = await r.json();
+      console.log('DELETE response:', data);
+      if (r.ok) toast('Deleted from Azure ✓', 'ok');
+      else toast('Delete error: ' + (data.error || r.status), 'err');
+    }
+  } catch(e) {
+    console.error('Delete failed:', e);
+    toast('Delete failed: ' + e.message, 'err');
+  }
 }
 
 function clearForm() {
