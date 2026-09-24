@@ -38,6 +38,9 @@ nav { background: var(--navy); height: 54px; display: flex; align-items: center;
 #toast.ok { background: var(--green); }
 #toast.err { background: var(--red); }
 .order-type-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--purple-lt); color: var(--purple); margin-left: 8px; vertical-align: middle; letter-spacing: 0.3px; }
+.edit-modal-box { max-width: 680px; width: 95%; max-height: 90vh; overflow-y: auto; }
+.btn-edit { background: none; border: 1px solid var(--border); border-radius: 4px; width: 24px; height: 24px; font-size: 14px; cursor: pointer; color: var(--blue); display: flex; align-items: center; justify-content: center; padding: 0; margin-right: 4px; transition: background .15s; }
+.btn-edit:hover { background: var(--blue-lt); }
 
 /* PAGES */
 .page { max-width: 1120px; margin: 0 auto; padding: 28px 24px 80px; display: none; }
@@ -224,6 +227,32 @@ nav { background: var(--navy); height: 54px; display: flex; align-items: center;
   </div>
 </div>
 
+<div class="overlay" id="edit-modal">
+  <div class="modal edit-modal-box">
+    <h3>Edit Work Order</h3>
+    <div class="form-grid" style="margin-top:14px;">
+      <div class="field span2"><label>Work Order # or Name</label><input id="e-wo" placeholder="e.g. DC-BC-OPS-001 or Short Description" /></div>
+      <div class="field"><label>Client Request #</label><input id="e-cr" placeholder="REQ00000" /></div>
+      <div class="field"><label>Change Request #</label><input id="e-change" placeholder="CHG00000" /></div>
+      <div class="field"><label>Assignee</label><select id="e-assignee"><option value="DC">DC</option><option value="SIS">SIS</option><option value="AFCS">AFCS</option></select></div>
+      <div class="field"><label>Order Type</label><select id="e-ordertype"><option value="">— Select Type —</option><option value="RFP">RFP</option><option value="RFC">RFC</option><option value="Base Change">Base Change</option><option value="Change Order">Change Order</option><option value="Enhancement">Enhancement</option></select></div>
+      <div class="field"><label>Quoted Price ($)</label><input id="e-price" type="number" placeholder="0.00" step="0.01" /></div>
+      <div class="field"><label>Final Price ($)</label><input id="e-final" type="number" placeholder="0.00" step="0.01" /></div>
+      <div class="field"><label>Hours</label><input id="e-hours" type="number" placeholder="0" step="0.5" /></div>
+      <div class="field"><label>PO Number</label><input id="e-po" placeholder="PO-0000-X" /></div>
+      <div class="field"><label>Documents URL</label><input id="e-docs" type="url" placeholder="https://…" /></div>
+      <div class="field"><label>Signed Documents URL</label><input id="e-signed" type="url" placeholder="https://…" /></div>
+      <div class="field"><label>UAT Date</label><input id="e-uat" type="date" /></div>
+      <div class="field"><label>Deployed to Prod Date</label><input id="e-prod" type="date" /></div>
+      <div class="field"><label>Status</label><select id="e-status"><option value="notstarted">Not Started</option><option value="inprogress">In Progress</option><option value="complete">Complete</option></select></div>
+    </div>
+    <div class="modal-btns" style="margin-top:18px;">
+      <button class="btn-cancel-sm" onclick="closeEditModal()">Cancel</button>
+      <button class="btn-primary" id="btn-edit-save" onclick="saveEdit()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- DASHBOARD -->
 <div class="page active" id="page-dashboard">
   <div class="dash-stats">
@@ -257,6 +286,8 @@ nav { background: var(--navy); height: 54px; display: flex; align-items: center;
         <div class="field"><label>Deployed to Prod Date</label><input id="f-prod" type="date" /></div>
         <div class="field"><label>Status</label><select id="f-status"><option value="notstarted">Not Started</option><option value="inprogress" selected>In Progress</option><option value="complete">Complete</option></select></div>
         <div class="field"><label>Order Type</label><select id="f-ordertype"><option value="">— Select Type —</option><option value="RFP">RFP</option><option value="RFC">RFC</option><option value="Base Change">Base Change</option><option value="Change Order">Change Order</option><option value="Enhancement">Enhancement</option></select></div>
+        <div class="field"><label>Change Request #</label><input id="f-change" placeholder="CHG00000" /></div>
+        <div class="field"><label>Hours</label><input id="f-hours" type="number" placeholder="0" step="0.5" /></div>
       </div>
       <div class="form-actions">
         <button class="btn-ghost" onclick="clearForm()">Clear</button>
@@ -398,7 +429,7 @@ async function delRow(o) {
 
 function des(e) {
   return { partitionKey:e.PartitionKey||e.partitionKey||'PMO', rowKey:e.RowKey||e.rowKey||'',
-    workOrderNumber:e.workOrderNumber||'', clientRequestNumber:e.clientRequestNumber||'',
+    workOrderNumber:e.workOrderNumber||'', clientRequestNumber:e.clientRequestNumber||'', changeRequestNumber:e.changeRequestNumber||'', hours:e.hours||'',
     assignee:e.assignee||'', quotedPrice:e.quotedPrice||0, finalPrice:e.finalPrice||0,
     poNumber:e.poNumber||'', documentsUrl:e.documentsUrl||'', signedDocumentsUrl:e.signedDocumentsUrl||'',
     orderType:e.orderType||'', status:e.status||'notstarted', currentStep:e.currentStep||0,
@@ -423,6 +454,8 @@ async function addOrder() {
     prodDate: document.getElementById('f-prod').value,
     status: document.getElementById('f-status').value,
     orderType: document.getElementById('f-ordertype').value,
+    changeRequestNumber: document.getElementById('f-change').value.trim(),
+    hours: document.getElementById('f-hours').value,
     currentStep: 0, stepDates: {}, createdAt: new Date().toISOString()
   };
   const btn = document.getElementById('btn-add');
@@ -482,8 +515,66 @@ async function doDel() {
   }
 }
 
+let editTarget = null;
+
+function openEdit(rowKey) {
+  const o = orders.find(x => x.rowKey === rowKey);
+  if (!o) return;
+  editTarget = rowKey;
+  document.getElementById('e-wo').value = o.workOrderNumber || '';
+  document.getElementById('e-cr').value = o.clientRequestNumber || '';
+  document.getElementById('e-change').value = o.changeRequestNumber || '';
+  document.getElementById('e-hours').value = o.hours || '';
+  document.getElementById('e-assignee').value = o.assignee || 'DC';
+  document.getElementById('e-ordertype').value = o.orderType || '';
+  document.getElementById('e-price').value = o.quotedPrice || '';
+  document.getElementById('e-final').value = o.finalPrice || '';
+  document.getElementById('e-po').value = o.poNumber || '';
+  document.getElementById('e-docs').value = o.documentsUrl || '';
+  document.getElementById('e-signed').value = o.signedDocumentsUrl || '';
+  document.getElementById('e-uat').value = o.uatDate || '';
+  document.getElementById('e-prod').value = o.prodDate || '';
+  document.getElementById('e-status').value = o.status || 'notstarted';
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+function closeEditModal() {
+  editTarget = null;
+  document.getElementById('edit-modal').classList.remove('open');
+}
+
+async function saveEdit() {
+  const idx = orders.findIndex(x => x.rowKey === editTarget);
+  if (idx === -1) return;
+  const o = { ...orders[idx],
+    workOrderNumber: document.getElementById('e-wo').value.trim(),
+    clientRequestNumber: document.getElementById('e-cr').value.trim(),
+    changeRequestNumber: document.getElementById('e-change').value.trim(),
+    hours: document.getElementById('e-hours').value,
+    assignee: document.getElementById('e-assignee').value,
+    orderType: document.getElementById('e-ordertype').value,
+    quotedPrice: parseFloat(document.getElementById('e-price').value) || 0,
+    finalPrice: parseFloat(document.getElementById('e-final').value) || 0,
+    poNumber: document.getElementById('e-po').value.trim(),
+    documentsUrl: document.getElementById('e-docs').value.trim(),
+    signedDocumentsUrl: document.getElementById('e-signed').value.trim(),
+    uatDate: document.getElementById('e-uat').value,
+    prodDate: document.getElementById('e-prod').value,
+    status: document.getElementById('e-status').value,
+  };
+  const btn = document.getElementById('btn-edit-save');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    await saveRow(o);
+    orders[idx] = o;
+    localStorage.setItem('wo_cache', JSON.stringify(orders));
+    closeEditModal(); toast('Saved ✓', 'ok'); render(); renderDashboard();
+  } catch(e) { toast('Save failed: ' + e.message, 'err'); }
+  btn.disabled = false; btn.textContent = 'Save Changes';
+}
+
 function clearForm() {
-  ['f-wo','f-cr','f-price','f-final','f-po','f-docs','f-signed','f-uat','f-prod'].forEach(id => document.getElementById(id).value='');
+  ['f-wo','f-cr','f-change','f-hours','f-price','f-final','f-po','f-docs','f-signed','f-uat','f-prod'].forEach(id => document.getElementById(id).value='');
   document.getElementById('f-ordertype').value = '';
   document.getElementById('f-assignee').selectedIndex = 0;
   document.getElementById('f-status').value = 'inprogress';
@@ -536,13 +627,16 @@ function card(o) {
     <div class="wo-top">
       <span class="wo-id">${esc(o.workOrderNumber)}</span>${o.orderType?`<span class="order-type-badge">${esc(o.orderType)}</span>`:''}
       <div class="wo-top-right"><span class="wo-age">${ago(o.createdAt)}</span>
+        <button class="btn-edit" onclick="openEdit('${o.rowKey}')" title="Edit">✎</button>
         <button class="btn-del" onclick="confirmDel('${o.rowKey}')" title="Delete">✕</button>
       </div>
     </div>
     <div class="wo-body">
       <div class="field-row">
         <div class="kv"><label>Client Request</label><div class="val">${o.clientRequestNumber||'<span class="nil">—</span>'}</div></div>
+        <div class="kv"><label>Change Request #</label><div class="val">${o.changeRequestNumber||'<span class="nil">—</span>'}</div></div>
         <div class="kv"><label>Quoted Price</label><div class="val price">${fmt(o.quotedPrice)||'<span class="nil">—</span>'}</div></div>
+        <div class="kv"><label>Hours</label><div class="val">${o.hours||'<span class="nil">—</span>'}</div></div>
         <div class="kv"><label>Documents</label><div class="val">${o.documentsUrl?`<a href="${esc(o.documentsUrl)}" target="_blank">View Documents ↗</a>`:'<span class="nil">No link yet</span>'}</div></div>
         <div class="kv"><label>Final Price</label><div class="val fprice">${fmt(o.finalPrice)||'<span class="nil">—</span>'}</div></div>
         <div class="kv"><label>Signed Documents</label><div class="val">${o.signedDocumentsUrl?`<a href="${esc(o.signedDocumentsUrl)}" target="_blank">View Signed Docs ↗</a>`:'<span class="nil">Pending</span>'}</div></div>
