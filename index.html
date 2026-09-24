@@ -585,7 +585,7 @@ function renderDashboard() {
   });
 }
 
-// ── AI ASSISTANT ──
+// ── AI ASSISTANT — Smart local engine ──
 async function sendAI() {
   const input = document.getElementById('ai-input');
   const msg = input.value.trim();
@@ -595,34 +595,73 @@ async function sendAI() {
   const loadingEl = addMessage('Thinking…', 'ai loading');
   document.getElementById('btn-send').disabled = true;
 
-  const woContext = orders.length > 0
-    ? `Current work orders: ${JSON.stringify(orders.map(o=>({
-        workOrderNumber:o.workOrderNumber, clientRequest:o.clientRequestNumber,
-        assignee:o.assignee, status:o.status, quotedPrice:o.quotedPrice,
-        finalPrice:o.finalPrice, poNumber:o.poNumber, currentStep:o.currentStep,
-        uatDate:o.uatDate, prodDate:o.prodDate
-      })))}`
-    : 'No work orders in the system yet.';
+  // Small delay for UX
+  await new Promise(r => setTimeout(r, 400));
+  loadingEl.remove();
 
-  const systemPrompt = `You are a helpful PMO (Project Management Office) assistant for a Work Order Pipeline tracker. You help users understand their work orders, pipeline status, and provide PMO guidance. ${woContext}`;
+  const q = msg.toLowerCase();
+  const ip = orders.filter(o => o.status === 'inprogress');
+  const cp = orders.filter(o => o.status === 'complete');
+  const ns = orders.filter(o => o.status === 'notstarted');
+  const totalVal = orders.reduce((s,o) => s + (o.finalPrice || o.quotedPrice || 0), 0);
+  const pendingPO = orders.filter(o => !o.poNumber || o.poNumber === '');
 
-  try {
-    const res = await fetch(API.ai, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemPrompt,
-        messages: [{ role: 'user', content: msg }]
-      })
-    });
-    const data = await res.json();
-    loadingEl.remove();
-    const reply = data.reply || data.error || 'Sorry, I could not get a response.';
-    addMessage(reply, 'ai');
-  } catch(e) {
-    loadingEl.remove();
-    addMessage('Sorry, I could not connect to the AI. Please try again.', 'ai');
+  let reply = '';
+
+  if (orders.length === 0) {
+    reply = 'There are no work orders in the system yet. Add some from the Pipeline tab!';
   }
+  else if (q.includes('how many') && (q.includes('progress') || q.includes('open'))) {
+    reply = `📋 There are currently ${ip.length} work order(s) in progress:\n\n${ip.map(o=>`• ${o.workOrderNumber} — ${o.assignee} (Step ${o.currentStep} of 7)`).join('\n') || 'None'}`;
+  }
+  else if (q.includes('complete') || q.includes('done') || q.includes('finished')) {
+    reply = `✅ ${cp.length} work order(s) completed:\n\n${cp.map(o=>`• ${o.workOrderNumber} — ${o.assignee}${o.finalPrice ? ' — $'+Number(o.finalPrice).toLocaleString() : ''}`).join('\n') || 'None yet'}`;
+  }
+  else if (q.includes('pending') && q.includes('po')) {
+    reply = `⏳ Work orders pending PO (${pendingPO.length}):\n\n${pendingPO.map(o=>`• ${o.workOrderNumber} — ${o.assignee} — ${o.status}`).join('\n') || 'All work orders have a PO number!'}`;
+  }
+  else if (q.includes('not started')) {
+    reply = `🕐 ${ns.length} work order(s) not started yet:\n\n${ns.map(o=>`• ${o.workOrderNumber} — ${o.assignee}`).join('\n') || 'None — great work!'}`;
+  }
+  else if (q.includes('assignee') || q.includes('most work') || q.includes('who has')) {
+    const counts = {};
+    orders.forEach(o => { counts[o.assignee] = (counts[o.assignee]||0) + 1; });
+    const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+    const top = sorted[0];
+    reply = `👥 Work orders by assignee:\n\n${sorted.map(([a,c])=>`• ${a}: ${c} work order(s)`).join('\n')}\n\n${top ? `🏆 ${top[0]} has the most with ${top[1]} work order(s).` : ''}`;
+  }
+  else if (q.includes(' dc')) {
+    const dc = orders.filter(o => o.assignee === 'DC');
+    reply = `🔵 DC has ${dc.length} work order(s):\n\n${dc.map(o=>`• ${o.workOrderNumber} — ${o.status}${o.quotedPrice?' — $'+Number(o.quotedPrice).toLocaleString():''}`).join('\n') || 'None assigned to DC'}`;
+  }
+  else if (q.includes('sis')) {
+    const sis = orders.filter(o => o.assignee === 'SIS');
+    reply = `🟢 SIS has ${sis.length} work order(s):\n\n${sis.map(o=>`• ${o.workOrderNumber} — ${o.status}${o.quotedPrice?' — $'+Number(o.quotedPrice).toLocaleString():''}`).join('\n') || 'None assigned to SIS'}`;
+  }
+  else if (q.includes('afcs')) {
+    const afcs = orders.filter(o => o.assignee === 'AFCS');
+    reply = `🟡 AFCS has ${afcs.length} work order(s):\n\n${afcs.map(o=>`• ${o.workOrderNumber} — ${o.status}${o.quotedPrice?' — $'+Number(o.quotedPrice).toLocaleString():''}`).join('\n') || 'None assigned to AFCS'}`;
+  }
+  else if (q.includes('total') || q.includes('how many') || q.includes('count')) {
+    reply = `📊 Total: ${orders.length} work orders\n• In Progress: ${ip.length}\n• Complete: ${cp.length}\n• Not Started: ${ns.length}`;
+  }
+  else if (q.includes('value') || q.includes('price') || q.includes('cost') || q.includes('money')) {
+    const quoted = orders.reduce((s,o) => s+(o.quotedPrice||0), 0);
+    reply = `💰 Financial Summary:\n• Total Quoted: $${Number(quoted).toLocaleString('en-US',{minimumFractionDigits:2})}\n• Total Final: $${Number(totalVal).toLocaleString('en-US',{minimumFractionDigits:2})}\n• Work Orders: ${orders.length}`;
+  }
+  else if (q.includes('prod') || q.includes('deployed') || q.includes('uat')) {
+    const deployed = orders.filter(o => o.prodDate);
+    const uat = orders.filter(o => o.uatDate);
+    reply = `🚀 Deployment Status:\n• Deployed to Prod: ${deployed.length} work order(s)\n• UAT completed: ${uat.length} work order(s)\n\n${deployed.map(o=>`• ${o.workOrderNumber} — Prod: ${new Date(o.prodDate).toLocaleDateString()}`).join('\n') || ''}`;
+  }
+  else if (q.includes('summar') || q.includes('overview') || q.includes('report')) {
+    reply = `📋 PMO Work Order Summary:\n\n• Total Work Orders: ${orders.length}\n• In Progress: ${ip.length}\n• Complete: ${cp.length}\n• Not Started: ${ns.length}\n• Pending PO: ${pendingPO.length}\n• Total Value: $${Number(totalVal).toLocaleString('en-US',{minimumFractionDigits:2})}\n\nAssignees:\n${['DC','SIS','AFCS'].map(a=>`• ${a}: ${orders.filter(o=>o.assignee===a).length}`).join('\n')}`;
+  }
+  else {
+    reply = `I can help you with:\n\n• "How many work orders are in progress?"\n• "Summarize all work orders"\n• "Which assignee has the most work orders?"\n• "What work orders are pending PO?"\n• "Show me work orders by DC / SIS / AFCS"\n• "What is the total value?"\n• "Which work orders are deployed to prod?"\n\nYou currently have ${orders.length} work order(s) in the system.`;
+  }
+
+  addMessage(reply, 'ai');
   document.getElementById('btn-send').disabled = false;
 }
 
