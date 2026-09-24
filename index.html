@@ -395,7 +395,7 @@ async function delRow(o) {
 }
 
 function des(e) {
-  return { partitionKey:e.partitionKey||e.PartitionKey, rowKey:e.rowKey||e.RowKey,
+  return { partitionKey:e.PartitionKey||e.partitionKey||'PMO', rowKey:e.RowKey||e.rowKey||'',
     workOrderNumber:e.workOrderNumber||'', clientRequestNumber:e.clientRequestNumber||'',
     assignee:e.assignee||'', quotedPrice:e.quotedPrice||0, finalPrice:e.finalPrice||0,
     poNumber:e.poNumber||'', documentsUrl:e.documentsUrl||'', signedDocumentsUrl:e.signedDocumentsUrl||'',
